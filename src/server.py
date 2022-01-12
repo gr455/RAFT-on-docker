@@ -19,12 +19,22 @@ def requestVotes():
 	argsJSON = request.args.get("args")
 	args = json.loads(argsJSON)
 
-	requestRPC = RequestVoteRPC(args.term, args.candidateSID, args.candidateLastLogTerm, args.candidateLastLogIndex)
+	requestRPC = RequestVoteRPC(args["term"], args["candidateSID"], args["candidateLastLogTerm"], args["candidateLastLogIndex"])
 
 	status = raft.recvVoteRPC(requestRPC)
 
 	if status.ok: return status, 200
 	return status, 500
+
+# Fellow server requests this endpoint to vote (positive or negative) current server
+@app.route("/voteCandidate")
+def voteCandidate():
+	argsJSON = request.args.get("args")
+	args = json.loads(argsJSON)
+
+	if args["granted"]: raft.recvVote()
+
+	return { "ok": True }, 200
 
 # GET, PUT, HEARTBEAT, NEWLEADER
 @app.route("/appendRPC")
@@ -32,7 +42,7 @@ def appendRPC():
 	argsJSON = request.args.get("args")
 	args = json.loads(argsJSON)
 
-	appendRPC = AppendRPC(args.term, args.leaderSID, args.prevLogIndex, args.prevLogTerm, args.leaderCommitIndex, args.command)
+	appendRPC = AppendRPC(args["term"], args["leaderSID"], args["prevLogIndex"], args["prevLogTerm"], args["leaderCommitIndex"], args["command"])
 
 	status = raft.recvAppendRPC(appendRPC)
 

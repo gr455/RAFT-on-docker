@@ -11,6 +11,8 @@ STATE_CANDIDATE = 2
 
 ELECTION_TIMEOUT = 200 # milliseconds
 
+INSTANT = 0.0001
+
 # Take the total number of servers (including failed servers) in the cluster from the env var
 # This env var must be set in the docker container
 SERVER_COUNT = os.environ["RAFT_ENV_NSERVER"]
@@ -39,12 +41,15 @@ class Raft:
 		self.appliedIndex = appliedIndex
 		self.termVotedFor = termVotedFor
 		self.logger = Logger(LOGFILE_LOCATION)
+		self.currentTermVotes = 0
 
 		persistentJSON = self.getPersistentJSON()
 		if persistentJSON:
 			self.loadPersistent(persistentJSON)
 		else:
 			self.updatePersistent()
+
+		self.logger.log("STARTUP")
 
 	# Send request to all servers' http servers advertising self as candidate
 	def requestElection(self):
@@ -108,17 +113,18 @@ class Raft:
 		return { "ok": response.status_code == 200 }
 
 	# Sends rquest for votes to all servers in the cluster
+	# Election timer is reset when request for votes is sent
+	# Votes for current term are set to 1 (own vote)
 	def requestVotes(self):
-		nfailed = 0
-		votes = 1
+		self.resetElectionTimer()
+		self.currentTermVotes = 1
+
 		for host in peerServerHosts:
 			if host.sid == self.sid: continue
 
 			status = self.requestSingleVote(host)
-			if not status["ok"]: failed += 1
-			elif status["gotVote"]: votes += 1
 
-		return { "ok": failed < floor(SERVER_COUNT / 2), "nfailed": nfailed, "nvotes": votes }
+		return { "ok": True }
 
 	# Sends a single REQUESTEL RPC to a single server
 	def requestSingleVote(self, host):
@@ -134,9 +140,19 @@ class Raft:
 
 
 		rpcJSON = json.dumps(rpc)
-		response = request.get(url = f"http://{host}/requestVotes", params = { "args": rpcJSON })
+		# This request is a fire and forget, we will not be waiting for a response
+		try: requests.get(url = f"http://{host}/requestVotes", params = { "args": rpcJSON }, timeout = INSTANT)
+		except: pass
 
-		return { "ok": response.status_code == 200, "gotVote": response.json()["granted"] }
+		return { "ok": True }
+
+	# Called when candidate receives a positive vote from a fellow server
+	def recvVote(self):
+		if self.status != STATE_CANDIDATE: return
+
+		self.currentTermVotes += 1
+
+		if self.currentTermVotes >= ceil(SERVER_COUNT / 2): self.winElection()
 
 	# Called by http server controller when it receives an AppendRPC
 	# Must return ok: True if consistent with the leader else False
@@ -165,8 +181,18 @@ class Raft:
 			self.executeAsyncOperation(AppendRPC)
 
 
+	# Called when a follower receives VoteRPC, not to be confused with function recvVote(self) above
 	def recvVoteRPC(self, requestVotesRPC):
-		return self.executeAsyncOperation(requestVotesRPC)
+		status = self.executeAsyncOperation(requestVotesRPC)
+		candidateId = requestVotesRPC.candidateSID
+
+		# Hardcoded URL for the server's http server
+		url = f"http://server{candidateId}/voteCandidate"
+
+		try: requests.get(url = url, args = { "granted": status["granted"] }, timeout = INSTANT)
+		except: pass
+
+		return { "ok": True }
 
 	# Commits all operations in log till commitIndex
 	def commitEntry(self, commitIndex):
