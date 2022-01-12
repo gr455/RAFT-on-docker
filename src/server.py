@@ -19,7 +19,7 @@ def requestVotes():
 	argsJSON = request.args.get("args")
 	args = json.loads(argsJSON)
 
-	requestRPC = RequestVoteRPC(args["term"], args["candidateSID"], args["candidateLastLogTerm"], args["candidateLastLogIndex"])
+	requestRPC = RequestVoteRPC(args["term"], args["candidateId"], args["lastLogTerm"], args["lastLogIndex"])
 
 	status = raft.recvVoteRPC(requestRPC)
 
@@ -42,7 +42,7 @@ def appendRPC():
 	argsJSON = request.args.get("args")
 	args = json.loads(argsJSON)
 
-	appendRPC = AppendRPC(args["term"], args["leaderSID"], args["prevLogIndex"], args["prevLogTerm"], args["leaderCommitIndex"], args["command"])
+	appendRPC = AppendRPC(args["term"], args["leaderID"], args["prevLogIndex"], args["prevLogTerm"], args["leaderCommit"], args["command"])
 
 	status = raft.recvAppendRPC(appendRPC)
 
@@ -57,7 +57,7 @@ def ping():
 # Initialize server and raft layer
 if __name__ == '__main__':
 	# RAFT_ENV_SERVERID must be set on the container
-	serverID = os.environ["RAFT_ENV_SERVERID"]
+	serverID = int(os.environ["RAFT_ENV_SERVERID"])
 	raft = Raft(serverID)
-	# Runs on port 7238 (RAFT) inside the container
-	app.run(host = "0.0.0.0", port = 7238, debug = True)
+	# Runs on port 80 inside the container
+	app.run(host = "0.0.0.0", port = 80, debug = True)

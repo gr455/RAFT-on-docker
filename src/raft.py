@@ -1,26 +1,29 @@
 import requests
 import os
 import json
+import random
 from util.customJSON import LogEncoder
 from util.logger import Logger
+from util.timers import ElectionTimer, HeartbeatTimer
 
 ## CONSTANTS
 STATE_LEADER = 0
 STATE_FOLLOWER = 1
 STATE_CANDIDATE = 2
 
-ELECTION_TIMEOUT = 200 # milliseconds
+ELECTION_TIMEOUT = random.randint(200000, 500000) # milliseconds
+HEARTBEAT_TIME = 1000 # milliseconds
 
 INSTANT = 0.0001
 
 # Take the total number of servers (including failed servers) in the cluster from the env var
 # This env var must be set in the docker container
-SERVER_COUNT = os.environ["RAFT_ENV_NSERVER"]
+SERVER_COUNT = int(os.environ["RAFT_ENV_NSERVER"])
 LOGFILE_LOCATION = os.environ["RAFT_ENV_LOGFILE_LOCATION"]
 
 keyValueStorage = {}
 
-peerServerHosts = []
+peerServerHosts = [f"server{i}" for i in range(1, SERVER_COUNT + 1)]
 
 
 # SUPPORTS THE FOLLOWING OPERATIONS
@@ -43,6 +46,10 @@ class Raft:
 		self.logger = Logger(LOGFILE_LOCATION)
 		self.currentTermVotes = 0
 
+		self.electionTimer = ElectionTimer(ELECTION_TIMEOUT, self.electionTimeout, [])
+		self.electionTimer.tick()
+		self.heartbeatTimer = HeartbeatTimer(HEARTBEAT_TIME, self.heartbeatTimeout, [])
+
 		persistentJSON = self.getPersistentJSON()
 		if persistentJSON:
 			self.loadPersistent(persistentJSON)
@@ -51,17 +58,25 @@ class Raft:
 
 		self.logger.log("STARTUP")
 
+	def host(self):
+		return f"server{self.sid}"
+
 	# Send request to all servers' http servers advertising self as candidate
 	def requestElection(self):
+		self.logger.log("ELECTIONREQUEST")
 		self.state = STATE_CANDIDATE
-		status = self.requestVotes()
-		if status["nvotes"] >= ceil(SERVER_COUNT / 2): self.winElection()
+		self.electionTimer.reset()
+		self.currentTermVotes = 1
 
+		status = self.requestVotes()
+
+		return status
 	# Called if ceil(SERVER_COUNT / 2) votes are achieved by self
 	def winElection(self):
 		self.state = STATE_LEADER
 		self.changeCurrentTerm(self.term + 1)
 		self.sendAppendRPC("NEWLEADER")
+		self.logger.log(f"WONELECTION (term {self.term})")
 
 	# Appends command to own log, if the server is leader, then it also sends out
 	# AppendRPCs to rest of the servers in the cluster
@@ -85,7 +100,7 @@ class Raft:
 		self.logger.log(f"SENDAPPEND ({command}, term: {self.term})")
 		nfailed = 0
 		for host in peerServerHosts:
-			if host.sid == self.sid: continue
+			if host == self.host(): continue
 
 			status = self.sendAppendRPCSingle(command, host)
 			if not status["ok"]: failed += 1
@@ -106,6 +121,7 @@ class Raft:
 			rpc["prevLogTerm"] = self.log[self.appliedIndex - 1].term
 
 		rpc["leaderCommit"] = self.commitIndex
+		rpc["command"] = self.command
 
 		rpcJSON = json.dumps(rpc)
 		response = requests.get(url = f"http://{host}/appendRPC", params = { "args": rpcJSON })
@@ -116,11 +132,8 @@ class Raft:
 	# Election timer is reset when request for votes is sent
 	# Votes for current term are set to 1 (own vote)
 	def requestVotes(self):
-		self.resetElectionTimer()
-		self.currentTermVotes = 1
-
 		for host in peerServerHosts:
-			if host.sid == self.sid: continue
+			if host == self.host(): continue
 
 			status = self.requestSingleVote(host)
 
@@ -183,6 +196,7 @@ class Raft:
 
 	# Called when a follower receives VoteRPC, not to be confused with function recvVote(self) above
 	def recvVoteRPC(self, requestVotesRPC):
+		self.logger.log(f"RECVELECTION (from {requestVotesRPC.candidateSID})")
 		status = self.executeAsyncOperation(requestVotesRPC)
 		candidateId = requestVotesRPC.candidateSID
 
@@ -226,21 +240,30 @@ class Raft:
 		op = rpc.command
 
 		if op == "HEARTBEAT":
-			logger.log(f"HEARTBEAT (from {rpc.leaderSID})")
-			self.resetElectionTimer()
+			self.logger.log(f"HEARTBEAT (from {rpc.leaderSID})")
+			self.state = STATE_FOLLOWER
+			self.electionTimer.reset()
 			return { ok: True }
 
 		elif op == "REQUESTEL":
-			logger.log(f"CANDIDATURE (from {rpc.candidateSID}, for {rpc.term})")
+			self.logger.log(f"CANDIDATURE (from {rpc.candidateSID}, for {rpc.term})")
 			if self.term > rpc.term: return { ok: True, granted: False, term: rpc.term }
 
 			vote = self.decideVote(rpc.candidateLastLogTerm, rpc.candidateLastLogIndex)
 			return { ok: True, granted: vote, term: rpc.term }
 
 		elif op == "NEWLEADER":
-			logger.log(f"NEWLEADER ({rpc.leaderSID} for term {rpc.term})")
+			self.logger.log(f"NEWLEADER ({rpc.leaderSID} for term {rpc.term})")
 			changeCurrentTerm(rpc.term)
+			self.state = STATE_FOLLOWER
 			return { ok: True }
+
+	def electionTimeout(self):
+		self.requestElection()
+
+	def heartbeatTimeout(self):
+		if self.state != STATE_LEADER: return # this should never arise, but just in case
+		self.sendAppendRPC("HEARTBEAT")
 
 	# As a response to REQUESTEL, a server decides whether to vote the candidate
 	def decideVote(self, candidateLastLogTerm, candidateLastLogIndex):

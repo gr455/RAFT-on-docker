@@ -4,7 +4,7 @@ services:
   server1:
     build: .
     ports:
-      - "3331:7238"
+      - "3331:80"
     environment:
       - RAFT_ENV_NSERVER=3
       - RAFT_ENV_SERVERID=1
@@ -17,7 +17,7 @@ services:
   server2:
     build: .
     ports:
-      - "3332:7238"
+      - "3332:80"
     environment:
       - RAFT_ENV_NSERVER=3
       - RAFT_ENV_SERVERID=2
@@ -30,7 +30,7 @@ services:
   server3:
     build: .
     ports:
-      - "3333:7238"
+      - "3333:80"
     environment:
       - RAFT_ENV_NSERVER=3
       - RAFT_ENV_SERVERID=3
