@@ -1,0 +1,39 @@
+version: '3'
+
+services:
+  server1:
+    build: .
+    ports:
+      - "3331:7238"
+    environment:
+      - RAFT_ENV_NSERVER=3
+      - RAFT_ENV_SERVERID=1
+      - RAFT_ENV_LOGFILE_LOCATION="../logs/log1.log"
+    volumes:
+      - ./logs:/raft/logs
+    entrypoint: python3 server.py
+
+  server2:
+    build: .
+    ports:
+      - "3332:7238"
+    environment:
+      - RAFT_ENV_NSERVER=3
+      - RAFT_ENV_SERVERID=2
+      - RAFT_ENV_LOGFILE_LOCATION="../logs/log2.log"
+    volumes:
+      - ./logs:/raft/logs
+    entrypoint: python3 server.py
+
+  server3:
+    build: .
+    ports:
+      - "3333:7238"
+    environment:
+      - RAFT_ENV_NSERVER=3
+      - RAFT_ENV_SERVERID=3
+      - RAFT_ENV_LOGFILE_LOCATION="../logs/log3.log"
+    volumes:
+      - ./logs:/raft/logs
+    entrypoint: python3 server.py
+
