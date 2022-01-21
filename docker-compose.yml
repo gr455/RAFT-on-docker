@@ -12,6 +12,7 @@ services:
     volumes:
       - ./logs:/raft/logs
       - ./src:/raft/src
+    command: echo > /raft/persistent.log
     entrypoint: python3 server.py
 
   server2:
@@ -25,6 +26,7 @@ services:
     volumes:
       - ./logs:/raft/logs
       - ./src:/raft/src
+    command: echo > /raft/persistent.log
     entrypoint: python3 server.py
 
   server3:
@@ -38,5 +40,6 @@ services:
     volumes:
       - ./logs:/raft/logs
       - ./src:/raft/src
+    command: echo > /raft/persistent.log
     entrypoint: python3 server.py
 

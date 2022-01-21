@@ -6,10 +6,7 @@ class Logger:
 
 	def log(self, message):
 		logString = f"{time.time()}: {message}\n"
-
-		# print to stdout
-		print(logString)
-
+		
 		# append to logfile
 		logfile = open(self.location, "a")
 		logfile.write(logString)

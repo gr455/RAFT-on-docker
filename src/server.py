@@ -11,7 +11,7 @@ from raft import Raft, AppendRPC, RequestVoteRPC
 
 app = Flask(__name__)
 
-global raft
+# global raft
 
 # REQUESTEL
 @app.route("/requestVotes")
@@ -23,7 +23,7 @@ def requestVotes():
 
 	status = raft.recvVoteRPC(requestRPC)
 
-	if status.ok: return status, 200
+	if status["ok"]: return status, 200
 	return status, 500
 
 # Fellow server requests this endpoint to vote (positive or negative) current server
@@ -46,7 +46,7 @@ def appendRPC():
 
 	status = raft.recvAppendRPC(appendRPC)
 
-	if status.ok: return status, 200
+	if status["ok"]: return status, 200
 	return status, 500
 
 # debug only
@@ -60,4 +60,4 @@ if __name__ == '__main__':
 	serverID = int(os.environ["RAFT_ENV_SERVERID"])
 	raft = Raft(serverID)
 	# Runs on port 80 inside the container
-	app.run(host = "0.0.0.0", port = 80, debug = True)
+	app.run(host = "0.0.0.0", port = 80, debug = False)
